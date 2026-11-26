@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>你的专属香水推荐</title>
+<style>
+:root{--bg:#faf6f1;--card:#fff;--text:#2b2118;--muted:#7a6a5a;--accent:#9c5b3b;--line:#e8dccd;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1511;--card:#271e18;--text:#f1e7dc;--muted:#b3a08e;--accent:#d9915f;--line:#3a2d24;color-scheme:dark}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Noto Serif SC","Songti SC",Georgia,serif;line-height:1.7}
+main{max-width:720px;margin:0 auto;padding:32px 20px 56px}
+h1{font-size:1.8rem;margin:0 0 4px;letter-spacing:.05em}
+.sub{color:var(--muted);margin:0 0 24px}
+.panel,.item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:520px){.grid{grid-template-columns:1fr}}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:4px}
+input,select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+button{margin-top:18px;width:100%;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;font-size:1rem;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+#status{margin-top:16px;color:var(--muted);min-height:1.5em}
+.profile{margin:24px 0 8px;padding:14px 16px;border-left:3px solid var(--accent);background:var(--card);border-radius:0 10px 10px 0}
+.item{margin-top:14px;padding:16px 18px}
+.item h3{margin:0;font-size:1.1rem}
+.brand{color:var(--accent);font-size:.9rem}
+.notes{font-size:.85rem;color:var(--muted);margin:4px 0 8px}
+.item p{margin:0}
+.rank{display:inline-block;width:1.6em;height:1.6em;line-height:1.6em;text-align:center;border-radius:50%;background:var(--accent);color:#fff;font-size:.85rem;margin-right:8px}
+footer{margin-top:28px;font-size:.8rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>你的专属香水推荐</h1>
+<p class="sub">输入几条信息，由大模型为你分析并推荐五款全球知名香水。</p>
+<div class="panel">
+  <div class="grid">
+    <div><label for="uid">ID（昵称）</label><input id="uid" maxlength="30" placeholder="例如：小满"></div>
+    <div><label for="nation">国籍</label><input id="nation" maxlength="30" placeholder="例如：中国"></div>
+    <div><label for="gender">性别</label>
+      <select id="gender"><option>女</option><option>男</option><option>非二元 / 不想说</option></select></div>
+    <div><label for="zodiac">星座</label><select id="zodiac"></select></div>
+  </div>
+  <button id="go">生成推荐</button>
+  <div id="status" role="status"></div>
+</div>
+<div id="out"></div>
+<footer>推荐由 AI 生成，仅供参考，香水气味因人而异，建议到店试香后再购买。</footer>
+</main>
+<script>
+const signs=["白羊座","金牛座","双子座","巨蟹座","狮子座","处女座","天秤座","天蝎座","射手座","摩羯座","水瓶座","双鱼座"];
+const $=id=>document.getElementById(id);
+signs.forEach(s=>{const o=document.createElement("option");o.textContent=s;$("zodiac").appendChild(o);});
+
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+
+function render(data){
+  const out=$("out");out.textContent="";
+  if(data.profile)out.appendChild(el("div","profile",data.profile));
+  data.perfumes.forEach((p,i)=>{
+    const box=el("div","item"),h=el("h3");
+    h.appendChild(el("span","rank",String(i+1)));
+    h.appendChild(document.createTextNode(p.name));
+    box.append(h,el("div","brand",p.brand),el("div","notes","香调："+p.notes),el("p",null,p.reason));
+    out.appendChild(box);
+  });
+}
+
+$("go").addEventListener("click",async()=>{
+  const body={uid:$("uid").value.trim(),nation:$("nation").value.trim(),gender:$("gender").value,zodiac:$("zodiac").value};
+  if(!body.uid||!body.nation){$("status").textContent="请先填写 ID 和国籍。";return;}
+  $("go").disabled=true;$("out").textContent="";$("status").textContent="正在分析中…";
+  try{
+    const r=await fetch("/api/recommend",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.error||"请求失败");
+    render(data);$("status").textContent="";
+  }catch(e){
+    $("status").textContent=e.message||"生成失败，请稍后重试。";
+  }
+  $("go").disabled=false;
+});
+</script>
+</body>
+</html>
