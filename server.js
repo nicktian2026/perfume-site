@@ -1,17 +1,22 @@
 import "dotenv/config";
 import express from "express";
 import rateLimit from "express-rate-limit";
-import Anthropic from "@anthropic-ai/sdk";
 
 const app = express();
-const client = new Anthropic(); // 自动读取环境变量 ANTHROPIC_API_KEY
-const MODEL = process.env.MODEL || "claude-sonnet-5-5";
+
+// Gemini 配置：模型名可能随时间变化，请在 Google AI Studio 确认当前可用的免费模型，
+// 然后通过环境变量 MODEL 修改，不用改代码。
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const MODEL = process.env.MODEL || "gemini-3.5-flash-lite";
+const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+if (!GEMINI_API_KEY) console.warn("警告：未设置 GEMINI_API_KEY，调用会失败。");
 
 app.set("trust proxy", 1); // 部署在 Render 等代理后面时，限流才能识别真实 IP
 app.use(express.json({ limit: "10kb" }));
 app.use(express.static("public"));
 
-// 每个 IP 每分钟最多 5 次，防止 API 额度被刷
+// 每个 IP 每分钟最多 5 次，也能避免触发 Gemini 免费档的频率限制
 app.use("/api/", rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false }));
 
 const ZODIAC = ["白羊座","金牛座","双子座","巨蟹座","狮子座","处女座","天秤座","天蝎座","射手座","摩羯座","水瓶座","双鱼座"];
@@ -44,13 +49,25 @@ app.post("/api/recommend", async (req, res) => {
     '格式：{"profile":"...","perfumes":[{"name":"香水名","brand":"品牌","notes":"香调关键词","reason":"推荐理由"}]}';
 
   try {
-    const msg = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1200,
-      system,
-      messages: [{ role: "user", content: user }],
+    const r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096, temperature: 0.9 },
+      }),
+      signal: AbortSignal.timeout(45_000),
     });
-    const text = msg.content.filter(b => b.type === "text").map(b => b.text).join("");
+
+    if (!r.ok) {
+      console.error("Gemini error", r.status, await r.text());
+      const msg = r.status === 429 ? "当前访问人数较多，请稍后再试。" : "生成失败，请稍后重试。";
+      return res.status(502).json({ error: msg });
+    }
+
+    const json = await r.json();
+    const text = (json.candidates?.[0]?.content?.parts ?? []).map(p => p.text ?? "").join("");
     const data = extractJson(text);
     const perfumes = (data.perfumes || []).slice(0, 5).map(p => ({
       name: clean(p.name, 80), brand: clean(p.brand, 60),
